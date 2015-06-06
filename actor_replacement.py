@@ -11,16 +11,14 @@ import os
 DEBUG = False
 
 
-if len(sys.argv) < 3:
-    print("Usage: actor_replacement.py parsed_text.jsonlite actor_dict.json")
+if len(sys.argv) < 5:
+    print("Usage: actor_replacement.py parsed_text.jsonlite actor_dict.json words_to_actor.csv words_to_words.csv")
     print()
     print("Actor dict can be generated from CSV using actor_parser.py")
     sys.exit(1)
 
 
-parsed_jsonl = sys.argv[1]
-actor_json = sys.argv[2]
-
+parsed_jsonl, actor_json, words_to_actor, words_to_words = sys.argv[1:]
 
 with open(parsed_jsonl) as f:
     data = jsonlite2json(f)
@@ -29,52 +27,92 @@ with open(actor_json) as f:
     repl = json.load(f)
 
 
-# Set up replacement dictionary
-repl_dict = {entity["name"].lower(): entity["class"].lower() for entity in repl}
-repl_dict.update({"{} {}".format(entity["role"].lower(),
+def replacement_factory(replacement_dict):
+    for k in replacement_dict:
+        if len(k) <= 1:
+            print("----")
+            print("Warning: potential error in replacement dictionary")
+            print("Very short key found: '{}'".format(k))
+            print("!!! Ignoring these records.")
+            print("----")
+
+    # Create a regular expression from the dictionary keys
+    keys = sorted([k for k in replacement_dict.keys() if len(k) > 2],
+                  key=len, reverse=True)
+    expression = [re.escape(item) for item in keys]
+    regex = re.compile("({})".format("|".join(expression)))
+
+
+    def multiple_replace(text):
+        """Replace in 'text' all occurences of any key in the given
+        dictionary by its corresponding value.  Returns the new string.
+
+        Avoids situation where key gets translated to value, and if value is a
+        key gets translated again.
+
+        http://code.activestate.com/recipes/81330-single-pass-multiple-replace/
+        """
+
+
+        # For each match, look-up corresponding value in dictionary
+        return regex.sub(lambda mo: replacement_dict[mo.string[mo.start():mo.end()]], text)
+
+    return multiple_replace
+
+
+# Set up replacement actor dictionary
+repl_dict_named_entities = {entity["name"].lower(): entity["class"].lower() for entity in repl}
+repl_dict_named_entities.update({"{} {}".format(entity["role"].lower(),
                                  entity["name"].lower()):
                                  entity["class"].lower() for entity in repl})
 
-for k in repl_dict:
-    if len(k) <= 2:
-        print("----")
-        print("Warning: potential error in actor dictionary")
-        print("Very short key found: '{}'".format(k))
-        for s in [json.dumps(e, indent=2) for e in repl if e["name"] == k]:
-            print("xxxx")
-            print(s)
-        print("!!! Ignoring these records.")
-        print("----")
+#
+# --- Handle words to entity replacements ---
+#
+
+import csv
+f = csv.reader(open(words_to_actor))
+
+header = next(f)
+replacement_values = header[1:5]
+replacements = [line[1:5] for line in f]
+
+# These classes will be parsed out later.  For now, dump them.
+replacements = [[item.split(':')[0].strip() for item in line] for line in replacements]
+
+repl_dict_actors = {}
+for line in replacements:
+    for i, item in enumerate(line):
+        if item.strip():
+            repl_dict_actors[item.lower()] = replacement_values[i].lower()
+
+#
+# --- Handle words to words replacements ---
+#
+
+print(words_to_words)
+f = csv.reader(open(words_to_words))
+
+header = next(f)
+assert('Lemmas' in header[0])
+
+repl_dict_verbs = {}
+for line in f:
+    words = [w.strip() for w in line[:2]]
+    if words[0] and words[1]:
+        repl_dict_verbs[words[0].lower()] = words[1].lower()
 
 
-# Remove bad keys from dict
-bad_keys = [k for k in repl_dict if len(k) <= 2]
-for k in bad_keys:
-    del repl_dict[k]
+multiple_replace_named_entities = replacement_factory(repl_dict_named_entities)
+multiple_replace_actors = replacement_factory(repl_dict_actors)
+multiple_replace_verbs = replacement_factory(repl_dict_verbs)
 
 
-# Create a regular expression from the dictionary keys
-keys = sorted(repl_dict.keys(), key=len, reverse=True)
-expression = [re.escape(item) for item in keys]
-regex = re.compile("({})".format("|".join(expression)))
-
-
-def multiple_replace(text):
-  """Replace in 'text' all occurences of any key in the given
-  dictionary by its corresponding value.  Returns the new string.
-
-  Avoids situation where key gets translated to value, and if value is a
-  key gets translated again.
-
-  http://code.activestate.com/recipes/81330-single-pass-multiple-replace/
-  """
-
-
-  # For each match, look-up corresponding value in dictionary
-  return regex.sub(lambda mo: repl_dict[mo.string[mo.start():mo.end()]], text)
-
+# Here we specify where the dictionary has to be applied
 for entry in data:
-    entry['text'] = entry['text'].lower()
+    for key in entry:
+        entry[key] = entry[key].lower()
+
 
 for i, entry in enumerate(data):
     if DEBUG:
@@ -82,10 +120,29 @@ for i, entry in enumerate(data):
             print()
             print('<<', entry['text'])
             print('>>', multiple_replace(entry['text']))
-    entry['text'] = multiple_replace(entry['text'])
+
+    if 'S' in entry:
+        entry['S'] = multiple_replace_named_entities(entry['S'])
+        entry['S'] = multiple_replace_actors(entry['S'])
+
+    if 'O' in entry:
+        entry['O'] = multiple_replace_named_entities(entry['O'])
+        entry['O'] = multiple_replace_actors(entry['O'])
+
+    if 'tua' in entry:
+        entry['tua'] = multiple_replace_named_entities(entry['tua'])
+        entry['tua'] = multiple_replace_actors(entry['tua'])
+
+    if 'Lemma' in entry:
+        entry['Lemma'] = multiple_replace_verbs(entry['Lemma'])
+
+    if 'tua' in entry:
+        entry['tua'] = multiple_replace_verbs(entry['tua'])
+
     if (i % 1000 == 0):
         print('Progress: %d%%\r' % (i / (len(data) - 1) * 100), end='')
 print("Progress: 100%")
+
 
 fn = 'output_' + os.path.split(parsed_jsonl)[-1]
 with open(fn, 'w') as f:
