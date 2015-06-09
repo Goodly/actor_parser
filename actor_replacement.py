@@ -140,7 +140,7 @@ for i, entry in enumerate(data):
         entry['tua'] = multiple_replace_verbs(entry['tua'])
 
     if (i % 1000 == 0):
-        print('Progress: %d%%\r' % (i / (len(data) - 1) * 100), end='')
+        print('Progress: %.1f%%\r' % (i / (len(data) - 1) * 100), end='')
 print("Progress: 100%")
 
 
