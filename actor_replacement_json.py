@@ -42,7 +42,7 @@ for entry in data:
         entry[key] = entry[key].lower()
 
 
-for i, entry in enumerate(data[:100]):
+for i, entry in enumerate(data):
     if 'S' in entry:
         entry['S'] = multiple_replace_named_entities(entry['S'])
 
