@@ -16,13 +16,13 @@ actor_replacement:
 	@cp Protester.jsonl output.jsonl ; \
 	for actor in output_actor_dictionary_*.json; do \
 		echo -e "\n\n---> Actor replacement: $$actor\n\n"; \
-		python actor_replacement_json.py output.jsonl $$actor; \
+		python3 actor_replacement_json.py output.jsonl $$actor; \
 		mv output_output.jsonl output.jsonl ;\
 	done
 
 word_replacement:
 	@echo -e "\n\nWord to actor, word to word replacement...\n\n"
-	python actor_replacement.py output.jsonl words_to_actor.csv words_to_words.csv
+	python3 actor_replacement.py output.jsonl words_to_actor.csv words_to_words.csv
 	@mv output_output.jsonl final_output.jsonl
 	@echo -e "\n\nResults in: final_output.jsonl"
 
